@@ -174,6 +174,7 @@ module Make(R : Mirage_random.S)(Clock : Mirage_clock.PCLOCK)(Fs: Webdav_fs.S) =
         Lwt.return @@ Error `Bad_request
       | true ->
         let acl = [(`All, `Inherited (Uri.of_string (Fs.to_string parent')))] in
+        (* TODO preserve creation timestamp from previous property map *)
         let props = Properties.create ~content_type acl timestamp (String.length ics) (Fs.to_string file') in
         Fs.write fs file ics props >>= function
         (* TODO map error to internal server error and log it, as function *)

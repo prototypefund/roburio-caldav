@@ -36,12 +36,15 @@ let counter_metrics ~f name =
   Src.v ~doc ~tags:Metrics.Tags.[] ~data name
 
 let http_status =
-  let f code = Cohttp.Code.code_of_status code |> string_of_int in
+  let f = function
+    | #Cohttp.Code.informational_status -> "1xx"
+    | #Cohttp.Code.success_status -> "2xx"
+    | #Cohttp.Code.redirection_status -> "3xx"
+    | #Cohttp.Code.client_error_status -> "4xx"
+    | #Cohttp.Code.server_error_status -> "5xx"
+    | `Code c -> Printf.sprintf "%dxx" (c / 100)
+  in
   let src = counter_metrics ~f "http_response" in
-  (fun r -> Metrics.add src (fun x -> x) (fun d -> d r))
-
-let http_uri =
-  let src = counter_metrics ~f:(fun x -> x) "http_uri" in
   (fun r -> Metrics.add src (fun x -> x) (fun d -> d r))
 
 let sane username =
@@ -586,6 +589,5 @@ module Make (R : Mirage_random.S) (Clock : Mirage_clock.PCLOCK) (Fs : Webdav_fs.
                            (match body with `String s -> s | `Empty -> "empty" | _ -> "unknown") ) ; *)
     (* Finally, send the response to the client *)
     http_status status;
-    http_uri request.Cohttp.Request.resource;
     S.respond ~headers ~body ~status ()
 end
