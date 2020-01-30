@@ -6,9 +6,9 @@ open Webmachine.Rd
 
 module Xml = Webdav_xml
 
-let access_src = Logs.Src.create "http.access" ~doc:"HTTP server access log"
+let access_src = Logs.Src.create "webdav.access" ~doc:"HTTP server access log"
 module Access_log = (val Logs.src_log access_src : Logs.LOG)
-let response_time_src = Logs.Src.create "http.time" ~doc:"HTTP request response time"
+let response_time_src = Logs.Src.create "webdav.time" ~doc:"HTTP request response time"
 module Time_log = (val Logs.src_log response_time_src : Logs.LOG)
 
 let create ~f =
@@ -117,7 +117,7 @@ module Make (R : Mirage_random.S) (Clock : Mirage_clock.PCLOCK) (Fs : Webdav_fs.
       let path = self#path rd in
       let content_type = Headers.get_content_type rd.req_headers in
       let user = Headers.get_user rd.req_headers in
-      Logs.debug (fun m -> m "write_component path %s user %s body @.%s" path user body);
+      Access_log.debug (fun m -> m "write_component path %s user %s body @.%s" path user body);
       Dav.write_component fs config ~path (now ()) ~content_type ~user ~data:body >>= function
       | Error e -> Wm.respond (to_status e) rd
       | Ok etag ->
@@ -128,7 +128,7 @@ module Make (R : Mirage_random.S) (Clock : Mirage_clock.PCLOCK) (Fs : Webdav_fs.
     method private read_calendar rd =
       let path = self#path rd in
       let is_mozilla = Headers.is_user_agent_mozilla rd.req_headers in
-      Logs.debug (fun m -> m "read_calendar path %s is_mozilla %b" path is_mozilla);
+      Access_log.debug (fun m -> m "read_calendar path %s is_mozilla %b" path is_mozilla);
       Dav.read fs ~path ~is_mozilla >>= function
       | Error e -> Wm.respond (to_status e) rd
       | Ok (content_type, body) ->
@@ -168,7 +168,7 @@ module Make (R : Mirage_random.S) (Clock : Mirage_clock.PCLOCK) (Fs : Webdav_fs.
       | None -> Wm.continue (`Basic "calendar") rd
       | Some v -> Dav.verify_auth_header fs config v >>= function
         | Error (`Msg msg) ->
-          Logs.warn (fun m -> m "is_authorized failed with header value %s and message %s" v msg);
+          Access_log.warn (fun m -> m "is_authorized failed with header value %s and message %s" v msg);
           Wm.continue (`Basic "invalid authorization") rd
         | Error (`Unknown_user (name, password)) ->
           if config.do_trust_on_first_use then begin
@@ -179,11 +179,11 @@ module Make (R : Mirage_random.S) (Clock : Mirage_clock.PCLOCK) (Fs : Webdav_fs.
               let rd' = with_req_headers (Headers.replace_authorization name) rd in
               Wm.continue `Authorized rd'
             end else begin
-              Logs.warn (fun m -> m "is_authorized failed with unknown invalid username %s" name);
+              Access_log.warn (fun m -> m "is_authorized failed with unknown invalid username %s" name);
               Wm.continue (`Basic "invalid authorization") rd
             end
           end else begin
-            Logs.warn (fun m -> m "is_authorized failed with unknown username %s" name);
+            Access_log.warn (fun m -> m "is_authorized failed with unknown username %s" name);
             Wm.continue (`Basic "invalid authorization") rd
           end
         | Ok user ->
@@ -201,7 +201,7 @@ module Make (R : Mirage_random.S) (Clock : Mirage_clock.PCLOCK) (Fs : Webdav_fs.
       let user = Headers.get_user rd.req_headers in
       let depth = Headers.get_depth rd.req_headers in
       Cohttp_lwt.Body.to_string rd.req_body >>= fun body ->
-      Logs.debug (fun m -> m "process_property verb %s path %s user %s body @.%s" (Cohttp.Code.string_of_method rd.meth) path user body);
+      Access_log.debug (fun m -> m "process_property verb %s path %s user %s body @.%s" (Cohttp.Code.string_of_method rd.meth) path user body);
       let dispatch_on_verb = match rd.meth with
         | `Other "PROPFIND" -> Dav.propfind fs config ~path ~user ~depth ~data:body
         | `Other "PROPPATCH" -> Dav.proppatch fs config ~path ~user ~data:body
@@ -218,7 +218,7 @@ module Make (R : Mirage_random.S) (Clock : Mirage_clock.PCLOCK) (Fs : Webdav_fs.
       let path = self#path rd in
       let user = Headers.get_user rd.req_headers in
       Cohttp_lwt.Body.to_string rd.req_body >>= fun body ->
-      Logs.debug (fun m -> m "report path %s user %s body @.%s" path user body);
+      Access_log.debug (fun m -> m "report path %s user %s body @.%s" path user body);
       Dav.report fs config ~path ~user ~data:body >>= function
       | Error (`Bad_request as e) -> Wm.respond (to_status e) rd
       | Ok body ->
@@ -236,7 +236,7 @@ module Make (R : Mirage_random.S) (Clock : Mirage_clock.PCLOCK) (Fs : Webdav_fs.
       let path = self#path rd in
       let user = Headers.get_user rd.req_headers in
       Cohttp_lwt.Body.to_string rd.req_body >>= fun body ->
-      Logs.debug (fun m -> m "create_collection verb %s path %s user %s body @.%s" (Cohttp.Code.string_of_method rd.meth) path user body);
+      Access_log.debug (fun m -> m "create_collection verb %s path %s user %s body @.%s" (Cohttp.Code.string_of_method rd.meth) path user body);
       Dav.mkcol fs ~path config ~user rd.meth (now ()) ~data:body >>= function
       | Error (`Bad_request as e) -> Wm.respond (to_status e) rd
       | Error (`Forbidden body) -> Wm.continue `Forbidden { rd with resp_body = `String body }
@@ -245,7 +245,7 @@ module Make (R : Mirage_random.S) (Clock : Mirage_clock.PCLOCK) (Fs : Webdav_fs.
 
     method! delete_resource rd =
       let path = self#path rd in
-      Logs.debug (fun m -> m "delete_resource path %s" path);
+      Access_log.debug (fun m -> m "delete_resource path %s" path);
       Dav.delete fs ~path (now ()) >>= fun deleted ->
       Wm.continue deleted rd
 
@@ -373,10 +373,10 @@ module Make (R : Mirage_random.S) (Clock : Mirage_clock.PCLOCK) (Fs : Webdav_fs.
        | None -> Wm.continue (`Basic "calendar") rd
        | Some v -> Dav.verify_auth_header fs config v >>= function
          | Error (`Msg msg) ->
-           Logs.warn (fun m -> m "is_authorized failed with header value %s and message %s" v msg);
+           Access_log.warn (fun m -> m "is_authorized failed with header value %s and message %s" v msg);
            Wm.continue (`Basic "invalid authorization") rd
          | Error (`Unknown_user (name, _)) ->
-           Logs.warn (fun m -> m "is_authorized failed with unknown user %s" name);
+           Access_log.warn (fun m -> m "is_authorized failed with unknown user %s" name);
            Wm.continue (`Basic "invalid authorization") rd
          | Ok user ->
            let rd' = with_req_headers (Headers.replace_authorization user) rd in
@@ -456,10 +456,10 @@ module Make (R : Mirage_random.S) (Clock : Mirage_clock.PCLOCK) (Fs : Webdav_fs.
        | None -> Wm.continue (`Basic "calendar") rd
        | Some v -> Dav.verify_auth_header fs config v >>= function
          | Error (`Msg msg) ->
-           Logs.warn (fun m -> m "is_authorized failed with header value %s and message %s" v msg);
+           Access_log.warn (fun m -> m "is_authorized failed with header value %s and message %s" v msg);
            Wm.continue (`Basic "invalid authorization") rd
          | Error (`Unknown_user (name, _)) ->
-           Logs.warn (fun m -> m "is_authorized failed with unknown user %s" name);
+           Access_log.warn (fun m -> m "is_authorized failed with unknown user %s" name);
            Wm.continue (`Basic "invalid authorization") rd
          | Ok user ->
            let rd' = with_req_headers (Headers.replace_authorization user) rd in
@@ -524,10 +524,10 @@ module Make (R : Mirage_random.S) (Clock : Mirage_clock.PCLOCK) (Fs : Webdav_fs.
        | None -> Wm.continue (`Basic "calendar") rd
        | Some v -> Dav.verify_auth_header fs config v >>= function
          | Error (`Msg msg) ->
-           Logs.warn (fun m -> m "is_authorized failed with header value %s and message %s" v msg);
+           Access_log.warn (fun m -> m "is_authorized failed with header value %s and message %s" v msg);
            Wm.continue (`Basic "invalid authorization") rd
          | Error (`Unknown_user (name, _)) ->
-           Logs.warn (fun m -> m "is_authorized failed with unknown user %s" name);
+           Access_log.warn (fun m -> m "is_authorized failed with unknown user %s" name);
            Wm.continue (`Basic "invalid authorization") rd
          | Ok user ->
            let rd' = with_req_headers (Headers.replace_authorization user) rd in
@@ -576,10 +576,10 @@ module Make (R : Mirage_random.S) (Clock : Mirage_clock.PCLOCK) (Fs : Webdav_fs.
     Access_log.debug (fun m -> m "response %d response time %a"
                         (Cohttp.Code.code_of_status status)
                         Ptime.Span.pp diff) ;
-    Access_log.debug (fun m -> m "%s %s path: %s"
+(*    Access_log.debug (fun m -> m "%s %s path: %s"
                          (Cohttp.Code.string_of_method (Cohttp.Request.meth request))
                          (Uri.path (Cohttp.Request.uri request))
-                         (Astring.String.concat ~sep:", " path)) ;
+                         (Astring.String.concat ~sep:", " path)) ; *)
     Time_log.debug (fun m -> m "%s\t%s\t%d\t%f"
                          (Cohttp.Code.string_of_method (Cohttp.Request.meth request))
                          (Cohttp.Request.resource request)
